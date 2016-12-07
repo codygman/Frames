@@ -235,9 +235,10 @@ readColHeadersFixed :: (ColumnTypeable a, Monoid a)
 readColHeadersFixed opts f offsets =  do
   withFile f ReadMode $ \h -> do
     zip <$>
-      maybe ((\txt -> tokenizeRowFixed opts txt offsets) <$> T.hGetLine h) -- b (default)
-      pure -- (a -> b) (actual function)
-      (headerOverride opts) -- Maybe a (dispatch based on this result)
+      (pure $ sanitizeTypeName . fst <$> offsets)
+      -- maybe ((\txt -> tokenizeRowFixed opts txt offsets) <$> T.hGetLine h) -- b (default)
+      -- pure -- (a -> b) (actual function)
+      -- (headerOverride opts) -- Maybe a (dispatch based on this result)
       <*> prefixInferenceFixed opts h offsets
 
 -- * Loading Data
