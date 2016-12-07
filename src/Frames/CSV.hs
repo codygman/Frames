@@ -228,6 +228,8 @@ readColHeaders opts f =  withFile f ReadMode $ \h ->
                                        (headerOverride opts)
                              <*> prefixInference opts h
 
+-- TODO need to blindly use the passed in headers from offsets here
+-- BUG exists where you have to manually put the header names on first line of fixed with file until we do
 readColHeadersFixed :: (ColumnTypeable a, Monoid a)
                     => ParserOptions -> FilePath -> [(T.Text, Int)] -> IO [(T.Text, a)]
 readColHeadersFixed opts f offsets =  do
