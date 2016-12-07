@@ -26,7 +26,7 @@ import Frames.Col ((:->)(..))
 import Frames.ColumnUniverse
 import Frames.CoRec (Field, onField, onCoRec)
 import Frames.CSV (readTable, readTableMaybe, readTable', declareColumn,
-                   tableType, tableTypes, tableType', tableTypes')
+                   tableType, tableTypes, tableType', tableTypes', tableTypesFixed')
 import Frames.Exploration
 import Frames.Frame
 import Frames.InCore (toFrame, inCore, inCoreSoA,
