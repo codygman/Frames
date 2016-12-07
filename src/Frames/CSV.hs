@@ -552,9 +552,10 @@ tableTypes' (RowGen {..}) csvFile =
 -- @type Foo = "foo" :-> Int@, for example, @foo = rlens (Proxy ::
 -- Proxy Foo)@, and @foo' = rlens' (Proxy :: Proxy Foo)@.
 tableTypesFixed' :: forall a. (ColumnTypeable a, Monoid a)
-            => RowGen a -> FilePath -> [(T.Text, Int)] -> DecsQ
-tableTypesFixed' (RowGen {..}) csvFile offsets =
-  do headers <- runIO $ readColHeadersFixed opts csvFile offsets
+            => RowGen a -> FilePath -> IO [(T.Text, Int)] -> DecsQ
+tableTypesFixed' (RowGen {..}) csvFile getOffsets =
+  do offsets <- runIO $ getOffsets
+     headers <- runIO $ readColHeadersFixed opts csvFile offsets
      recTy <- tySynD (mkName rowTypeName) [] (recDec' headers)
      let optsName = case rowTypeName of
                       [] -> error "Row type name shouldn't be empty"
