@@ -126,8 +126,8 @@ tokenizeRowWithHeaders textLine (offset:offsets) = do
                             ((tag,val), restTxt)
 tokenizeRowWithHeaders _ [] = []
 
-tokenizeRowFixed :: ParserOptions -> T.Text -> Maybe [(T.Text,Int)] -> [T.Text]
-tokenizeRowFixed _ lineTxt (Just offsets) = map snd $ tokenizeRowWithHeaders lineTxt offsets
+tokenizeRowFixed :: ParserOptions -> T.Text -> [(T.Text,Int)] -> [T.Text]
+tokenizeRowFixed _ lineTxt offsets = map snd $ tokenizeRowWithHeaders lineTxt offsets
 
 -- h = foldr (\(words,output) (tag, n) -> let (w,ws) = splitAt n words in (ws, output ++ [(tag, w)]))
 
@@ -209,7 +209,7 @@ prefixInference opts h = T.hGetLine h >>= go prefixSize . inferCols
 -- | Infer column types from a prefix (up to 1000 lines) of a CSV
 -- file.
 prefixInferenceFixed :: (ColumnTypeable a, Monoid a)
-                => ParserOptions -> Handle -> Maybe [(T.Text, Int)] -> IO [a]
+                => ParserOptions -> Handle -> [(T.Text, Int)] -> IO [a]
 prefixInferenceFixed opts h offsets = T.hGetLine h >>= go prefixSize . inferCols
   where prefixSize = 1000 :: Int
         inferCols = map inferType . (\lineTxt -> tokenizeRowFixed opts lineTxt offsets)
@@ -229,7 +229,7 @@ readColHeaders opts f =  withFile f ReadMode $ \h ->
                              <*> prefixInference opts h
 
 readColHeadersFixed :: (ColumnTypeable a, Monoid a)
-                    => ParserOptions -> FilePath -> Maybe [(T.Text, Int)] -> IO [(T.Text, a)]
+                    => ParserOptions -> FilePath -> [(T.Text, Int)] -> IO [(T.Text, a)]
 readColHeadersFixed opts f offsets =  do
   withFile f ReadMode $ \h -> do
     zip <$>
@@ -254,7 +254,13 @@ instance (Parseable t, ReadRec ts) => ReadRec (s :-> t ': ts) where
 
 -- | Read a 'RecF' from one line of CSV.
 readRow :: ReadRec rs => ParserOptions -> T.Text -> Rec Maybe rs
-readRow = (readRec .) . tokenizeRow
+-- readRow = (readRec .) . tokenizeRow
+readRow opts txt = readRec  (tokenizeRow opts txt)
+
+-- | Read a 'RecF' from one line of CSV.
+readRowFixed :: ReadRec rs => ParserOptions -> T.Text -> [(T.Text,Int)] -> Rec Maybe rs
+readRowFixed opts txt offsets = readRec  (tokenizeRowFixed opts txt offsets)
+
 
 -- | Produce rows where any given entry can fail to parse.
 readTableMaybeOpt :: (MonadIO m, ReadRec rs)
@@ -269,6 +275,21 @@ readTableMaybeOpt opts csvFile =
               False -> liftIO (readRow opts <$> T.hGetLine h) >>= P.yield >> go
      go
 {-# INLINE readTableMaybeOpt #-}
+
+-- | Produce rows where any given entry can fail to parse.
+readTableMaybeOptFixed :: (MonadIO m, ReadRec rs)
+                  => ParserOptions -> FilePath -> [(T.Text,Int)]-> P.Producer (Rec Maybe rs) m ()
+readTableMaybeOptFixed opts csvFile offsets =
+  do h <- liftIO $ do
+            h <- openFile csvFile ReadMode
+            when (isNothing $ headerOverride opts) (void $ T.hGetLine h)
+            return h
+     let go = liftIO (hIsEOF h) >>= \case
+              True -> return ()
+              False -> liftIO ((\txt -> readRowFixed opts txt offsets) <$> T.hGetLine h) >>= P.yield >> go
+     go
+{-# INLINE readTableMaybeOptFixed #-}
+
 
 -- | Produce rows where any given entry can fail to parse.
 readTableMaybe :: (MonadIO m, ReadRec rs)
@@ -308,6 +329,16 @@ readTableOpt :: forall m rs.
 readTableOpt opts csvFile = readTableMaybeOpt opts csvFile P.>-> go
   where go = P.await >>= maybe go (\x -> P.yield x >> go) . recMaybe
 {-# INLINE readTableOpt #-}
+
+-- | Returns a producer of rows for which each column was successfully
+-- parsed.
+readTableOptFixed :: forall m rs.
+                (MonadIO m, ReadRec rs)
+             => ParserOptions -> FilePath -> [(T.Text,Int)]-> P.Producer (Record rs) m ()
+readTableOptFixed opts csvFile offsets = readTableMaybeOptFixed opts csvFile offsets P.>-> go
+  where go = P.await >>= maybe go (\x -> P.yield x >> go) . recMaybe
+{-# INLINE readTableOptFixed #-}
+
 
 -- | Returns a producer of rows for which each column was successfully
 -- parsed.
@@ -519,7 +550,7 @@ tableTypes' (RowGen {..}) csvFile =
 -- @type Foo = "foo" :-> Int@, for example, @foo = rlens (Proxy ::
 -- Proxy Foo)@, and @foo' = rlens' (Proxy :: Proxy Foo)@.
 tableTypesFixed' :: forall a. (ColumnTypeable a, Monoid a)
-            => RowGen a -> FilePath -> Maybe [(T.Text, Int)] -> DecsQ
+            => RowGen a -> FilePath -> [(T.Text, Int)] -> DecsQ
 tableTypesFixed' (RowGen {..}) csvFile offsets =
   do headers <- runIO $ readColHeadersFixed opts csvFile offsets
      recTy <- tySynD (mkName rowTypeName) [] (recDec' headers)
