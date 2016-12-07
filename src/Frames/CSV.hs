@@ -97,6 +97,57 @@ tokenizeRow options =
           NoQuoting -> id
           RFC4180Quoting quote -> reassembleRFC4180QuotedParts sep quote
 
+-- createOffsets [("A",5),("B",5)] == [("A",(0,5)),("B",(5,10))]
+createOffsets :: [(T.Text,Int)] -> [(T.Text,(Int, Int))]
+createOffsets offsets = go offsets 0
+  where go ((tyNm, i): os) idx = do
+          let newIdx = idx + i :: Int
+          let new = (tyNm,(idx,newIdx)) :: (T.Text,(Int,Int))
+          new : go os newIdx
+        go [] idx = []
+
+-- tokenizeRow'' rowTxt (o:os) = f o (words,output)
+  -- where f (colNm,n) = 
+
+-- first lets work on a subset
+-- g ("ColA",5) "word1word2" == ("ColA","word1")
+-- g :: (t, Int) -> (T.Text, [(t, T.Text)]) -> (T.Text, [(t, T.Text)])
+-- g :: (T.Text,Int) -> T.Text -> (T.Text, (T.Text,T.Text))
+-- g :: (t, Int) -> T.Text -> (t, T.Text)
+
+tokenizeRowWithHeaders :: T.Text -> [(T.Text,Int)] -> [(T.Text,T.Text)]
+tokenizeRowWithHeaders textLine (offset:offsets) = do
+  let
+    (results, restOfLine) = go offset textLine
+    in
+    results : tokenizeRowWithHeaders restOfLine offsets
+  where go (tag, n) txt = let (val, restTxt) = T.splitAt n txt
+                          in
+                            ((tag,val), restTxt)
+tokenizeRowWithHeaders _ [] = []
+
+tokenizeRowFixed :: ParserOptions -> T.Text -> Maybe [(T.Text,Int)] -> [T.Text]
+tokenizeRowFixed _ lineTxt (Just offsets) = map snd $ tokenizeRowWithHeaders lineTxt offsets
+
+-- h = foldr (\(words,output) (tag, n) -> let (w,ws) = splitAt n words in (ws, output ++ [(tag, w)]))
+
+-- f "word1word2word3word4" [("ColA",5),("ColB",5),("ColC",5),("ColD",5)] == [("ColA","word1"),("ColB","word2"),("ColC","word3"),("ColD","word4)]
+-- tokenizeRow' :: T.Text -> [(T.Text,Int)] -> [(T.Text, [T.Text])]
+-- tokenizeRow' rowTxt offsetPairs = do
+--   undefined
+  -- lol this is horrible below and doesn't work
+
+  -- let initialLines = T.lines rowTxt
+  -- go initialLines (createOffsets offsetPairs) ""
+  -- where go (curLine : ls) ((tyNm, (_,end)) : opairs) initTxt = do
+  --         if initTxt == "" then do
+  --           let (txt, txts) = T.splitAt end curLine
+  --           (tyNm, txt) : go ls opairs txts
+  --         else undefined
+  --       go [] [] _ = []
+  --       go [] _ _ = error "need more input 1"
+  --       go _ [] _ = error "need more input 2"
+
 -- | Post processing applied to a list of tokens split by the
 -- separator which should have quoted sections reassembeld
 reassembleRFC4180QuotedParts :: Separator -> QuoteChar -> [T.Text] -> [T.Text]
@@ -155,6 +206,19 @@ prefixInference opts h = T.hGetLine h >>= go prefixSize . inferCols
             True -> return ts
             False -> T.hGetLine h >>= go (n - 1) . zipWith (<>) ts . inferCols
 
+-- | Infer column types from a prefix (up to 1000 lines) of a CSV
+-- file.
+prefixInferenceFixed :: (ColumnTypeable a, Monoid a)
+                => ParserOptions -> Handle -> Maybe [(T.Text, Int)] -> IO [a]
+prefixInferenceFixed opts h offsets = T.hGetLine h >>= go prefixSize . inferCols
+  where prefixSize = 1000 :: Int
+        inferCols = map inferType . (\lineTxt -> tokenizeRowFixed opts lineTxt offsets)
+        go 0 ts = return ts
+        go !n ts =
+          hIsEOF h >>= \case
+            True -> return ts
+            False -> T.hGetLine h >>= go (n - 1) . zipWith (<>) ts . inferCols
+
 -- | Extract column names and inferred types from a CSV file.
 readColHeaders :: (ColumnTypeable a, Monoid a)
                => ParserOptions -> FilePath -> IO [(T.Text, a)]
@@ -163,6 +227,16 @@ readColHeaders opts f =  withFile f ReadMode $ \h ->
                                        pure
                                        (headerOverride opts)
                              <*> prefixInference opts h
+
+readColHeadersFixed :: (ColumnTypeable a, Monoid a)
+                    => ParserOptions -> FilePath -> Maybe [(T.Text, Int)] -> IO [(T.Text, a)]
+readColHeadersFixed opts f offsets =  do
+  withFile f ReadMode $ \h -> do
+    zip <$>
+      maybe ((\txt -> tokenizeRowFixed opts txt offsets) <$> T.hGetLine h) -- b (default)
+      pure -- (a -> b) (actual function)
+      (headerOverride opts) -- Maybe a (dispatch based on this result)
+      <*> prefixInferenceFixed opts h offsets
 
 -- * Loading Data
 
@@ -418,6 +492,36 @@ tableTypes' :: forall a. (ColumnTypeable a, Monoid a)
             => RowGen a -> FilePath -> DecsQ
 tableTypes' (RowGen {..}) csvFile =
   do headers <- runIO $ readColHeaders opts csvFile
+     recTy <- tySynD (mkName rowTypeName) [] (recDec' headers)
+     let optsName = case rowTypeName of
+                      [] -> error "Row type name shouldn't be empty"
+                      h:t -> mkName $ toLower h : t ++ "Parser"
+     optsTy <- sigD optsName [t|ParserOptions|]
+     optsDec <- valD (varP optsName) (normalB $ lift opts) []
+     colDecs <- concat <$> mapM (uncurry mkColDecs) headers
+     return (recTy : optsTy : optsDec : colDecs)
+     -- (:) <$> (tySynD (mkName n) [] (recDec' headers))
+     --     <*> (concat <$> mapM (uncurry $ colDec (T.pack prefix)) headers)
+  where recDec' = recDec . map (second colType) :: [(T.Text, a)] -> Q Type
+        colNames' | null columnNames = Nothing
+                  | otherwise = Just (map T.pack columnNames)
+        opts = ParserOptions colNames' separator (RFC4180Quoting '\"')
+        mkColDecs colNm colTy = do
+                      mColNm <- lookupTypeName (T.unpack . sanitizeTypeName $ colNm)
+                      case mColNm of
+                        Just _ -> pure []
+                        Nothing -> colDec (T.pack tablePrefix) colNm colTy
+
+
+-- | Like 'tableType'', but additionally generates a type synonym for
+-- each column, and a proxy value of that type. If the CSV file has
+-- column names \"foo\", \"bar\", and \"baz\", then this will declare
+-- @type Foo = "foo" :-> Int@, for example, @foo = rlens (Proxy ::
+-- Proxy Foo)@, and @foo' = rlens' (Proxy :: Proxy Foo)@.
+tableTypesFixed' :: forall a. (ColumnTypeable a, Monoid a)
+            => RowGen a -> FilePath -> Maybe [(T.Text, Int)] -> DecsQ
+tableTypesFixed' (RowGen {..}) csvFile offsets =
+  do headers <- runIO $ readColHeadersFixed opts csvFile offsets
      recTy <- tySynD (mkName rowTypeName) [] (recDec' headers)
      let optsName = case rowTypeName of
                       [] -> error "Row type name shouldn't be empty"
