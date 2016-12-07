@@ -123,7 +123,7 @@ tokenizeRowWithHeaders textLine (offset:offsets) = do
     results : tokenizeRowWithHeaders restOfLine offsets
   where go (tag, n) txt = let (val, restTxt) = T.splitAt n txt
                           in
-                            ((tag,val), restTxt)
+                            ((tag,T.strip val), restTxt)
 tokenizeRowWithHeaders _ [] = []
 
 tokenizeRowFixed :: ParserOptions -> T.Text -> [(T.Text,Int)] -> [T.Text]
