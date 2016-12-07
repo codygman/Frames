@@ -1,9 +1,11 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns, DefaultSignatures, LambdaCase #-}
 module Frames.ColumnTypeable where
 import Control.Monad (MonadPlus)
 import Data.Readable (Readable(fromText))
 import qualified Data.Text as T
 import Language.Haskell.TH
+import Data.Monoid ((<>))
 
 data Parsed a = Possibly a | Definitely a deriving (Eq, Ord, Show)
 
@@ -39,7 +41,12 @@ instance Parseable Int where
 instance Parseable Float where
 instance Parseable Double where
   -- Some CSV's export Doubles in a format like '1,000.00', filtering out commas lets us parse those sucessfully
-  parse = fmap Definitely . fromText . T.filter (/= ',')
+  -- Some formats don't begin with a leading 0, so if something begins with a decimal we'll try putting a 0 in front of it
+  parse txt = case T.take 1 txt of
+    "." -> do
+      fmap Definitely . fromText $ "0" <> txt
+    _ -> do
+      fmap Definitely . fromText . T.filter (/= ',') $ txt
 instance Parseable T.Text where
 
 -- | This class relates a universe of possible column types to Haskell
