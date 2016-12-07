@@ -42,9 +42,9 @@ instance Parseable Float where
 instance Parseable Double where
   -- Some CSV's export Doubles in a format like '1,000.00', filtering out commas lets us parse those sucessfully
   -- Some formats don't begin with a leading 0, so if something begins with a decimal we'll try putting a 0 in front of it
-  parse txt = case T.take 1 txt of
+  parse txt = case (T.take 1 . T.strip $ txt) of
     "." -> do
-      fmap Definitely . fromText $ "0" <> txt
+      fmap Definitely . fromText $ "0" <> (T.strip txt)
     _ -> do
       fmap Definitely . fromText . T.filter (/= ',') $ txt
 instance Parseable T.Text where
