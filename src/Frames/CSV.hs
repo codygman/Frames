@@ -180,7 +180,7 @@ instance (Parseable t, ReadRec ts) => ReadRec (s :-> t ': ts) where
 
 -- | Read a 'RecF' from one line of CSV.
 readRow :: ReadRec rs => ParserOptions -> T.Text -> Rec Maybe rs
-readRow = (readRec .) . tokenizeRow
+readRow r txt = readRec (tokenizeRow r txt)
 
 -- | Produce rows where any given entry can fail to parse.
 readTableMaybeOpt :: (MonadIO m, ReadRec rs)
@@ -234,6 +234,22 @@ readTableOpt :: forall m rs.
 readTableOpt opts csvFile = readTableMaybeOpt opts csvFile P.>-> go
   where go = P.await >>= maybe go (\x -> P.yield x >> go) . recMaybe
 {-# INLINE readTableOpt #-}
+
+-- BROKEN
+-- -- | Returns a producer of rows for which each column was successfully
+-- -- parsed.
+-- readTableOptDefault :: forall m rs.
+--                 (MonadIO m, ReadRec rs)
+--              => ParserOptions -> FilePath -> P.Producer (Record rs) m ()
+-- readTableOptDefault opts csvFile = readTableMaybeOpt opts csvFile P.>-> go
+--   -- where go = P.await >>= \p -> maybe go (\x -> P.yield x >> go) (recMaybe p)
+--   where go = P.await >>= \p -> case (recMaybe p) of
+--           Just x -> P.yield x >> go -- with type: P.Proxy () (Rec Maybe cs) y' y m1 b …
+--           Nothing -> P.yield mempty >> go -- with type: P.Proxy () (Rec Maybe cs) () (Record cs) m1 b
+
+-- {-# INLINE readTableOptDefault #-}
+
+  
 
 -- | Returns a producer of rows for which each column was successfully
 -- parsed.
@@ -421,14 +437,19 @@ tableTypes' :: forall a. (ColumnTypeable a, Monoid a)
             => RowGen a -> FilePath -> DecsQ
 tableTypes' (RowGen {..}) csvFile =
   do headers <- runIO $ readColHeaders opts csvFile
-     recTy <- tySynD (mkName rowTypeName) [] (recDec' headers)
+     -- recTy <- tySynD (mkName rowTypeName) [] (recDec' headers)
+     recTy <- do
+       mRowTypeName <- lookupTypeName rowTypeName
+       case mRowTypeName of
+         Just _ -> pure []
+         Nothing -> pure <$> tySynD (mkName rowTypeName) [] (recDec' headers)
      let optsName = case rowTypeName of
                       [] -> error "Row type name shouldn't be empty"
                       h:t -> mkName $ toLower h : t ++ "Parser"
      optsTy <- sigD optsName [t|ParserOptions|]
      optsDec <- valD (varP optsName) (normalB $ lift opts) []
      colDecs <- concat <$> mapM (uncurry mkColDecs) headers
-     return (recTy : optsTy : optsDec : colDecs)
+     return (recTy ++ optsTy : optsDec : colDecs)
      -- (:) <$> (tySynD (mkName n) [] (recDec' headers))
      --     <*> (concat <$> mapM (uncurry $ colDec (T.pack prefix)) headers)
   where recDec' = recDec . map (second colType) :: [(T.Text, a)] -> Q Type
