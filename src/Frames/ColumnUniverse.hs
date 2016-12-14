@@ -134,16 +134,26 @@ instance (T.Text ∈ ts) => Monoid (CoRec ColInfo ts) where
         Nothing -> mempty
 
 -- | Find the best (i.e. smallest) 'CoRec' variant to represent a
--- parsed value.
+-- parsed value. For inspection in GHCi after loading this module,
+-- consider this example:
+-- 
+-- >>> :set -XTypeApplications
+-- >>> :set -XOverloadedStrings
+-- >>> import Frames.CoRec (foldCoRec)
+-- >>> foldCoRec parsedTypeRep (bestRep @CommonColumns "2.3")
+-- Definitely Double
 bestRep :: forall ts.
            (LAll Parseable ts, LAll Typeable ts, FoldRec ts ts,
             RecApplicative ts, T.Text ∈ ts)
         => T.Text -> CoRec ColInfo ts
-bestRep = aux
-        . fromMaybe (Col (Compose $ Possibly (mkTyped :: Typed T.Text)))
-        . firstField
-        . elementTypes
-        . (tryParseAll :: T.Text -> Rec (Maybe :. (Parsed :. Proxy)) ts)
+bestRep t
+  | T.null t = aux (Col (Compose (Possibly (mkTyped :: Typed T.Text))))
+  | otherwise = aux
+              . fromMaybe (Col (Compose $ Possibly (mkTyped :: Typed T.Text)))
+              . firstField
+              . elementTypes
+              . (tryParseAll :: T.Text -> Rec (Maybe :. (Parsed :. Proxy)) ts)
+              $ t
   where aux :: CoRec (Parsed :. Typed) ts -> CoRec ColInfo ts
         aux (Col (Compose d@(Possibly (Const tr)))) =
           Col (ColInfo (quoteType tr, d))
