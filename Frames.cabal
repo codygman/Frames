@@ -46,6 +46,21 @@ library
                        Frames.RecF
                        Frames.RecLens
                        Frames.TypeLevel
+                       Frames.ByteString.Frames
+                       Frames.ByteString.Col
+                       Frames.ByteString.ColumnTypeable
+                       Frames.ByteString.ColumnUniverse
+                       Frames.ByteString.CoRec
+                       Frames.ByteString.CSV
+                       Frames.ByteString.Exploration
+                       Frames.ByteString.Frame
+                       Frames.ByteString.InCore
+                       Frames.ByteString.Melt
+                       Frames.ByteString.Rec
+                       Frames.ByteString.RecF
+                       Frames.ByteString.RecLens
+                       Frames.ByteString.TypeLevel
+
   other-extensions:    DataKinds, GADTs, KindSignatures, TypeFamilies,
                        TypeOperators, ConstraintKinds, StandaloneDeriving,
                        UndecidableInstances, ScopedTypeVariables,
