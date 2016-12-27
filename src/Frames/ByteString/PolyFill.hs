@@ -20,5 +20,9 @@ bsDropEnd :: Int -> BS.ByteString -> BS.ByteString
 bsDropEnd n bs = fst (BS.splitAt n bs)
 
 -- TODO this is slow because bsDropWhileEnd is slow
-bsDropAround :: (Char -> Bool) -> Text -> Text
-bsDropAround p = BS.dropWhile p . bsDropWhileEnd p
+bsDropAround :: (Char -> Bool) -> BS.ByteString -> BS.ByteString
+bsDropAround p = C8.dropWhile p . bsDropWhileEnd p
+
+-- TODO this is SLOW! FIX!
+bsStrip :: BS.ByteString -> BS.ByteString
+bsStrip bs = TE.encodeUtf8 (T.strip (TE.decodeUtf8 bs))

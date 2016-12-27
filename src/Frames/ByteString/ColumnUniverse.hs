@@ -29,10 +29,11 @@ import qualified Data.Text as T
 import Data.Typeable (Typeable, showsTypeRep, typeRep)
 import Data.Vinyl
 import Data.Vinyl.Functor
-import Frames.CoRec
-import Frames.ColumnTypeable
-import Frames.RecF (reifyDict)
-import Frames.TypeLevel (LAll)
+import qualified Data.ByteString.Char8 as C8
+import Frames.ByteString.CoRec
+import Frames.ByteString.ColumnTypeable
+import Frames.ByteString.RecF (reifyDict)
+import Frames.ByteString.TypeLevel (LAll)
 import Data.Typeable (TypeRep)
 import Data.Maybe (fromMaybe)
 
@@ -54,24 +55,24 @@ quoteType x = do n <- lookupTypeName s
 -- * Parseable Proxy
 
 -- | Extract a function to test whether some value of a given type
--- could be read from some 'T.Text'.
+-- could be read from some 'C8.ByteString'.
 inferParseable :: forall a. Parseable a
-               => T.Text -> (Maybe :. (Parsed :. Proxy)) a
+               => C8.ByteString -> (Maybe :. (Parsed :. Proxy)) a
 inferParseable = Compose
                . fmap (Compose . fmap (const Proxy))
-               . (parse :: T.Text -> Maybe (Parsed a))
+               . (parse :: C8.ByteString -> Maybe (Parsed a))
 
 -- | Helper to call 'inferParseable' on variants of a 'CoRec'.
 inferParseable' :: Parseable a
-                => (((->) T.Text) :. (Maybe :. (Parsed :. Proxy))) a
+                => (((->) C8.ByteString) :. (Maybe :. (Parsed :. Proxy))) a
 inferParseable' = Compose inferParseable
 
 -- * Record Helpers
 
 tryParseAll :: forall ts. (RecApplicative ts, LAll Parseable ts)
-            => T.Text -> Rec (Maybe :. (Parsed :. Proxy)) ts
+            => C8.ByteString -> Rec (Maybe :. (Parsed :. Proxy)) ts
 tryParseAll = rtraverse getCompose funs
-  where funs :: Rec (((->) T.Text) :. (Maybe :. (Parsed :. Proxy))) ts
+  where funs :: Rec (((->) C8.ByteString) :. (Maybe :. (Parsed :. Proxy))) ts
         funs = reifyDict (Proxy::Proxy Parseable) inferParseable'
 
 -- | Preserving the outermost two functor layers, replace each element with
@@ -103,7 +104,7 @@ parsedTypeRep (ColInfo (_,p)) = fmap getConst p
 -- results, we are in dangerous waters: all data is parseable at
 -- /both/ types, so which do we default to? The defaulting choices
 -- made here are described in the previous paragraph. If there is no
--- defaulting rule, we give up (i.e. use 'T.Text' as a
+-- defaulting rule, we give up (i.e. use 'C8.ByteString' as a
 -- representation).
 lubTypeReps :: Parsed TypeRep -> Parsed TypeRep -> Maybe Ordering
 lubTypeReps (Possibly _) (Definitely _) = Just LT
@@ -124,8 +125,8 @@ lubTypeReps (Definitely trX) (Definitely trY)
         trDbl = typeRep (Proxy :: Proxy Double)
         trBool = typeRep (Proxy :: Proxy Bool)
 
-instance (T.Text ∈ ts) => Monoid (CoRec ColInfo ts) where
-  mempty = Col (ColInfo ([t|T.Text|], Possibly mkTyped) :: ColInfo T.Text)
+instance (C8.ByteString ∈ ts) => Monoid (CoRec ColInfo ts) where
+  mempty = Col (ColInfo ([t|C8.ByteString|], Possibly mkTyped) :: ColInfo C8.ByteString)
   mappend x@(Col (ColInfo (_, trX))) y@(Col (ColInfo (_, trY))) =
       case lubTypeReps (fmap getConst trX) (fmap getConst trY) of
         Just GT -> x
@@ -144,15 +145,15 @@ instance (T.Text ∈ ts) => Monoid (CoRec ColInfo ts) where
 -- Definitely Double
 bestRep :: forall ts.
            (LAll Parseable ts, LAll Typeable ts, FoldRec ts ts,
-            RecApplicative ts, T.Text ∈ ts)
-        => T.Text -> CoRec ColInfo ts
+            RecApplicative ts, C8.ByteString ∈ ts)
+        => C8.ByteString -> CoRec ColInfo ts
 bestRep t
-  | T.null t = aux (Col (Compose (Possibly (mkTyped :: Typed T.Text))))
+  | C8.null t = aux (Col (Compose (Possibly (mkTyped :: Typed C8.ByteString))))
   | otherwise = aux
-              . fromMaybe (Col (Compose $ Possibly (mkTyped :: Typed T.Text)))
+              . fromMaybe (Col (Compose $ Possibly (mkTyped :: Typed C8.ByteString)))
               . firstField
               . elementTypes
-              . (tryParseAll :: T.Text -> Rec (Maybe :. (Parsed :. Proxy)) ts)
+              . (tryParseAll :: C8.ByteString -> Rec (Maybe :. (Parsed :. Proxy)) ts)
               $ t
   where aux :: CoRec (Parsed :. Typed) ts -> CoRec ColInfo ts
         aux (Col (Compose d@(Possibly (Const tr)))) =
@@ -162,7 +163,7 @@ bestRep t
 {-# INLINABLE bestRep #-}
 
 instance (LAll Parseable ts, LAll Typeable ts, FoldRec ts ts,
-          RecApplicative ts, T.Text ∈ ts) =>
+          RecApplicative ts, C8.ByteString ∈ ts) =>
     ColumnTypeable (CoRec ColInfo ts) where
   colType (Col (ColInfo (t, _))) = t
   {-# INLINE colType #-}
@@ -172,7 +173,7 @@ instance (LAll Parseable ts, LAll Typeable ts, FoldRec ts ts,
 -- * Common Columns
 
 -- | Common column types
-type CommonColumns = [Bool, Int, Double, T.Text]
+type CommonColumns = [Bool, Int, Double, C8.ByteString]
 
 -- | Define a set of variants that captures all possible column types.
 type ColumnUniverse = CoRec ColInfo

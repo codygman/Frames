@@ -9,9 +9,9 @@ import Data.Char (isSpace, isUpper)
 import Data.Proxy
 import qualified Data.Vinyl as V
 import Data.Vinyl.Functor (Identity(..))
-import Frames.Rec
-import Frames.RecF (AsVinyl(toVinyl), UnColumn)
-import Frames.TypeLevel (AllAre)
+import Frames.ByteString.Rec
+import Frames.ByteString.RecF (AsVinyl(toVinyl), UnColumn)
+import Frames.ByteString.TypeLevel (AllAre)
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
 import Pipes hiding (Proxy)

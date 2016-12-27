@@ -20,10 +20,10 @@ import qualified Data.Vector.Generic.Mutable as VGM
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vinyl as V
 import Data.Vinyl.Functor (Identity(..))
-import Frames.Col
-import Frames.Frame
-import Frames.Rec
-import Frames.RecF
+import Frames.ByteString.Col
+import Frames.ByteString.Frame
+import Frames.ByteString.Rec
+import Frames.ByteString.RecF
 #if __GLASGOW_HASKELL__ < 800
 import GHC.Prim (RealWorld)
 #endif

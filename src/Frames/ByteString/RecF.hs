@@ -24,8 +24,8 @@ import qualified Data.Vinyl as V
 import Data.Vinyl (Rec(RNil), RecApplicative(rpure))
 import Data.Vinyl.Functor (Identity)
 import Data.Vinyl.TypeLevel
-import Frames.Col
-import Frames.TypeLevel
+import Frames.ByteString.Col
+import Frames.ByteString.TypeLevel
 import GHC.TypeLits (KnownSymbol, symbolVal)
 
 -- | Add a column to the head of a row.

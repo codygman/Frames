@@ -7,8 +7,8 @@ import Data.Monoid
 #endif
 import qualified Data.Vector as V
 import Data.Vinyl.TypeLevel
-import Frames.Rec (Record)
-import Frames.RecF (rappend)
+import Frames.ByteString.Rec (Record)
+import Frames.ByteString.RecF (rappend)
 
 -- | A 'Frame' is a finite collection of rows indexed by 'Int'.
 data Frame r = Frame { frameLength :: !Int

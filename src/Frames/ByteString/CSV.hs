@@ -32,20 +32,25 @@ import Data.Monoid ((<>))
 import Data.Proxy
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as C8
+import qualified Data.ByteString.Lazy.Char8 as LC8
+import qualified Data.ByteString.Search as SS
 import Data.Vinyl (RElem, Rec)
 import Data.Vinyl.TypeLevel (RIndex)
-import Frames.Col
-import Frames.ColumnTypeable
-import Frames.ColumnUniverse
-import Frames.Rec
-import Frames.RecF
-import Frames.RecLens
+import Frames.ByteString.Col
+import Frames.ByteString.ColumnTypeable
+import Frames.ByteString.ColumnUniverse
+import Frames.ByteString.Rec
+import Frames.ByteString.RecF
+import Frames.ByteString.RecLens
+import Frames.ByteString.PolyFill as BS
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
 import qualified Pipes as P
 import System.IO (Handle, hIsEOF, openFile, IOMode(..), withFile)
 
-type Separator = T.Text
+type Separator = C8.ByteString
 
 type QuoteChar = Char
 
@@ -57,7 +62,7 @@ data QuotingMode
   | RFC4180Quoting QuoteChar
   deriving (Eq, Show)
 
-data ParserOptions = ParserOptions { headerOverride :: Maybe [T.Text]
+data ParserOptions = ParserOptions { headerOverride :: Maybe [C8.ByteString]
                                    , columnSeparator :: Separator
                                    , quotingMode :: QuotingMode }
   deriving (Eq, Show)
@@ -68,11 +73,11 @@ instance Lift QuotingMode where
 
 instance Lift ParserOptions where
   lift (ParserOptions Nothing sep quoting) = [|ParserOptions Nothing $sep' $quoting'|]
-    where sep' = [|T.pack $(stringE $ T.unpack sep)|]
+    where sep' = [|C8.pack $(stringE $ C8.unpack sep)|]
           quoting' = lift quoting
   lift (ParserOptions (Just hs) sep quoting) = [|ParserOptions (Just $hs') $sep' $quoting'|]
-    where sep' = [|T.pack $(stringE $ T.unpack sep)|]
-          hs' = [|map T.pack $(listE $  map (stringE . T.unpack) hs)|]
+    where sep' = [|C8.pack $(stringE $ C8.unpack sep)|]
+          hs' = [|map C8.pack $(listE $  map (stringE . C8.unpack) hs)|]
           quoting' = lift quoting
 
 -- | Default 'ParseOptions' get column names from a header line, and
@@ -82,15 +87,15 @@ defaultParser = ParserOptions Nothing defaultSep (RFC4180Quoting '\"')
 
 -- | Default separator string.
 defaultSep :: Separator
-defaultSep = T.pack ","
+defaultSep = C8.pack ","
 
 -- * Parsing
 
--- | Helper to split a 'T.Text' on commas and strip leading and
+-- | Helper to split a 'C8.ByteString' on commas and strip leading and
 -- trailing whitespace from each resulting chunk.
-tokenizeRow :: ParserOptions -> T.Text -> [T.Text]
+tokenizeRow :: ParserOptions -> C8.ByteString -> [C8.ByteString]
 tokenizeRow options =
-    handleQuoting . T.splitOn sep
+    handleQuoting . bsSplitOn sep
   where sep = columnSeparator options
         quoting = quotingMode options
         handleQuoting = case quoting of
@@ -99,67 +104,67 @@ tokenizeRow options =
 
 -- | Post processing applied to a list of tokens split by the
 -- separator which should have quoted sections reassembeld
-reassembleRFC4180QuotedParts :: Separator -> QuoteChar -> [T.Text] -> [T.Text]
+reassembleRFC4180QuotedParts :: Separator -> QuoteChar -> [C8.ByteString] -> [C8.ByteString]
 reassembleRFC4180QuotedParts sep quoteChar = finish . foldr f ([], Nothing)
-  where f :: T.Text -> ([T.Text], Maybe T.Text) -> ([T.Text], Maybe T.Text)
+  where f :: C8.ByteString -> ([C8.ByteString], Maybe C8.ByteString) -> ([C8.ByteString], Maybe C8.ByteString)
         f part (rest, Just accum)
-          | prefixQuoted part = let token = unescape (T.drop 1 part) <> sep <> accum
+          | prefixQuoted part = let token = unescape (C8.drop 1 part) <> sep <> accum
                                 in (token : rest, Nothing)
           | otherwise         = (rest, Just (unescape part <> sep <> accum))
         f part (rest, Nothing)
           | prefixQuoted part &&
-            suffixQuoted part = ((unescape . T.drop 1 . T.dropEnd 1 $ part) : rest, Nothing)
-          | suffixQuoted part = (rest, Just (unescape . T.dropEnd 1 $ part))
-          | otherwise         = (T.strip part : rest, Nothing)
+            suffixQuoted part = ((unescape . C8.drop 1 . bsDropEnd 1 $ part) : rest, Nothing)
+          | suffixQuoted part = (rest, Just (unescape . bsDropEnd 1 $ part))
+          | otherwise         = (bsStrip part : rest, Nothing)
 
         prefixQuoted t =
-          quoteText `T.isPrefixOf` t &&
-          (T.length t - (T.length . T.dropWhile (== quoteChar) $ t)) `mod` 2 == 1
+          quoteText `C8.isPrefixOf` t &&
+          (C8.length t - (C8.length . C8.dropWhile (== quoteChar) $ t)) `mod` 2 == 1
         suffixQuoted t =
-          quoteText `T.isSuffixOf` t &&
-          (T.length t - (T.length . T.dropWhileEnd (== quoteChar) $ t)) `mod` 2 == 1
+          quoteText `C8.isSuffixOf` t &&
+          (C8.length t - (C8.length . bsDropWhileEnd (== quoteChar) $ t)) `mod` 2 == 1
 
-        quoteText = T.singleton quoteChar
+        quoteText = C8.singleton quoteChar
 
-        unescape :: T.Text -> T.Text
-        unescape = T.replace (quoteText <> quoteText) quoteText
+        unescape :: C8.ByteString -> C8.ByteString
+        unescape = LC8.toStrict . (SS.replace (quoteText <> quoteText) quoteText)
 
-        finish :: ([T.Text], Maybe T.Text) -> [T.Text]
+        finish :: ([C8.ByteString], Maybe C8.ByteString) -> [C8.ByteString]
         finish (rest, Just dangling) = dangling : rest -- FIXME? just assumes the close quote if it's missing
         finish (rest, Nothing      ) =            rest
 
---tokenizeRow :: Separator -> T.Text -> [T.Text]
---tokenizeRow sep = map (unquote . T.strip) . T.splitOn sep
+--tokenizeRow :: Separator -> C8.ByteString -> [C8.ByteString]
+--tokenizeRow sep = map (unquote . C8.strip) . bsSplitOn sep
 --  where unquote txt
---          | quoted txt = case T.dropEnd 1 (T.drop 1 txt) of
---                           txt' | T.null txt' -> "Col"
+--          | quoted txt = case bsDropEnd 1 (C8.drop 1 txt) of
+--                           txt' | C8.null txt' -> "Col"
 --                                | numish txt' -> txt
 --                                | otherwise -> txt'
 --          | otherwise = txt
---        numish = T.all (`elem` ("-+.0123456789"::String))
---        quoted txt = case T.uncons txt of
+--        numish = C8.all (`elem` ("-+.0123456789"::String))
+--        quoted txt = case C8.uncons txt of
 --                       Just ('"', rst)
---                         | not (T.null rst) -> T.last rst == '"'
+--                         | not (C8.null rst) -> C8.last rst == '"'
 --                       _ -> False
 
 -- | Infer column types from a prefix (up to 1000 lines) of a CSV
 -- file.
 prefixInference :: (ColumnTypeable a, Monoid a)
                 => ParserOptions -> Handle -> IO [a]
-prefixInference opts h = T.hGetLine h >>= go prefixSize . inferCols
+prefixInference opts h = C8.hGetLine h >>= go prefixSize . inferCols
   where prefixSize = 1000 :: Int
         inferCols = map inferType . tokenizeRow opts
         go 0 ts = return ts
         go !n ts =
           hIsEOF h >>= \case
             True -> return ts
-            False -> T.hGetLine h >>= go (n - 1) . zipWith (<>) ts . inferCols
+            False -> C8.hGetLine h >>= go (n - 1) . zipWith (<>) ts . inferCols
 
--- | Extract column names and inferred types from a CSV file.
+-- -- | Extract column names and inferred types from a CSV file.
 readColHeaders :: (ColumnTypeable a, Monoid a)
-               => ParserOptions -> FilePath -> IO [(T.Text, a)]
+               => ParserOptions -> FilePath -> IO [(C8.ByteString, a)]
 readColHeaders opts f =  withFile f ReadMode $ \h ->
-                         zip <$> maybe (tokenizeRow opts <$> T.hGetLine h)
+                         zip <$> maybe (tokenizeRow opts <$> C8.hGetLine h)
                                        pure
                                        (headerOverride opts)
                              <*> prefixInference opts h
@@ -169,7 +174,7 @@ readColHeaders opts f =  withFile f ReadMode $ \h ->
 -- | Parsing each component of a 'RecF' from a list of text chunks,
 -- one chunk per record component.
 class ReadRec (rs :: [*]) where
-  readRec :: [T.Text] -> Rec Maybe rs
+  readRec :: [C8.ByteString] -> Rec Maybe rs
 
 instance ReadRec '[] where
   readRec _ = Nil
@@ -179,7 +184,7 @@ instance (Parseable t, ReadRec ts) => ReadRec (s :-> t ': ts) where
   readRec (h:t) = frameCons (parse' h) (readRec t)
 
 -- | Read a 'RecF' from one line of CSV.
-readRow :: ReadRec rs => ParserOptions -> T.Text -> Rec Maybe rs
+readRow :: ReadRec rs => ParserOptions -> C8.ByteString -> Rec Maybe rs
 readRow = (readRec .) . tokenizeRow
 
 -- | Produce rows where any given entry can fail to parse.
@@ -188,11 +193,11 @@ readTableMaybeOpt :: (MonadIO m, ReadRec rs)
 readTableMaybeOpt opts csvFile =
   do h <- liftIO $ do
             h <- openFile csvFile ReadMode
-            when (isNothing $ headerOverride opts) (void $ T.hGetLine h)
+            when (isNothing $ headerOverride opts) (void $ C8.hGetLine h)
             return h
      let go = liftIO (hIsEOF h) >>= \case
               True -> return ()
-              False -> liftIO (readRow opts <$> T.hGetLine h) >>= P.yield >> go
+              False -> liftIO (readRow opts <$> C8.hGetLine h) >>= P.yield >> go
      go
 {-# INLINE readTableMaybeOpt #-}
 
@@ -210,11 +215,11 @@ readTableOpt' :: forall m rs.
 readTableOpt' opts csvFile =
   do h <- liftIO $ do
             h <- openFile csvFile ReadMode
-            when (isNothing $ headerOverride opts) (void $ T.hGetLine h)
+            when (isNothing $ headerOverride opts) (void $ C8.hGetLine h)
             return h
      let go = liftIO (hIsEOF h) >>= \case
               True -> mzero
-              False -> let r = recMaybe . readRow opts <$> T.hGetLine h
+              False -> let r = recMaybe . readRow opts <$> C8.hGetLine h
                        in liftIO r >>= maybe go (flip mplus go . return)
      go
 {-# INLINE readTableOpt' #-}
@@ -245,24 +250,24 @@ readTable = readTableOpt defaultParser
 -- * Template Haskell
 
 -- | Generate a column type.
-recDec :: [(T.Text, Q Type)] -> Q Type
+recDec :: [(C8.ByteString, Q Type)] -> Q Type
 recDec = appT [t|Record|] . go
   where go [] = return PromotedNilT
         go ((n,t):cs) =
-          [t|($(litT $ strTyLit (T.unpack n)) :-> $(t)) ': $(go cs) |]
+          [t|($(litT $ strTyLit (C8.unpack n)) :-> $(t)) ': $(go cs) |]
 
--- | Massage a column name from a CSV file into a valid Haskell type
--- identifier.
-sanitizeTypeName :: T.Text -> T.Text
+-- -- | Massage a column name from a CSV file into a valid Haskell type
+-- -- identifier.
+sanitizeTypeName :: C8.ByteString -> C8.ByteString
 sanitizeTypeName = unreserved . fixupStart
-                 . T.concat . T.split (not . valid) . toTitle'
+                 . C8.concat . C8.splitWith (not . valid) . toTitle'
   where valid c = isAlphaNum c || c == '\'' || c == '_'
-        toTitle' = foldMap (onHead toUpper) . T.split (not . isAlphaNum)
-        onHead f = maybe mempty (uncurry T.cons) . fmap (first f) . T.uncons
+        toTitle' = foldMap (onHead toUpper) . C8.splitWith (not . isAlphaNum)
+        onHead f = maybe mempty (uncurry C8.cons) . fmap (first f) . C8.uncons
         unreserved t
           | t `elem` ["Type"] = "Col" <> t
           | otherwise = t
-        fixupStart t = case T.uncons t of
+        fixupStart t = case C8.uncons t of
                          Nothing -> "Col"
                          Just (c,_) | isAlpha c -> t
                                     | otherwise -> "Col" <> t
@@ -271,12 +276,12 @@ sanitizeTypeName = unreserved . fixupStart
 mkColTDec :: TypeQ -> Name -> DecQ
 mkColTDec colTypeQ colTName = tySynD colTName [] colTypeQ
 
--- | Declare a singleton value of the given column type and lenses for
--- working with that column.
-mkColPDec :: Name -> TypeQ -> T.Text -> DecsQ
+-- -- | Declare a singleton value of the given column type and lenses for
+-- -- working with that column.
+mkColPDec :: Name -> TypeQ -> C8.ByteString -> DecsQ
 mkColPDec colTName colTy colPName = sequenceA [tySig, val, tySig', val']
-  where nm = mkName $ T.unpack colPName
-        nm' = mkName $ T.unpack colPName <> "'"
+  where nm = mkName $ C8.unpack colPName
+        nm' = mkName $ C8.unpack colPName <> "'"
         -- tySig = sigD nm [t|Proxy $(conT colTName)|]
         tySig = sigD nm [t|forall f rs. (Functor f,
                             RElem $(conT colTName) rs (RIndex $(conT colTName) rs))
@@ -297,36 +302,36 @@ mkColPDec colTName colTy colPName = sequenceA [tySig, val, tySig', val']
                     (normalB [e|rlens' (Proxy :: Proxy $(conT colTName))|])
                     []
 
-lowerHead :: T.Text -> Maybe T.Text
-lowerHead = fmap aux . T.uncons
-  where aux (c,t) = T.cons (toLower c) t
+lowerHead :: C8.ByteString -> Maybe C8.ByteString
+lowerHead = fmap aux . C8.uncons
+  where aux (c,t) = C8.cons (toLower c) t
 
 -- | For each column, we declare a type synonym for its type, and a
 -- Proxy value of that type.
-colDec :: ColumnTypeable a => T.Text -> T.Text -> a -> DecsQ
+colDec :: ColumnTypeable a => C8.ByteString -> C8.ByteString -> a -> DecsQ
 colDec prefix colName colTy = (:) <$> mkColTDec colTypeQ colTName'
                                   <*> mkColPDec colTName' colTyQ colPName
   where colTName = sanitizeTypeName (prefix <> colName)
         colPName = fromMaybe "colDec impossible" (lowerHead colTName)
-        colTName' = mkName $ T.unpack colTName
+        colTName' = mkName $ C8.unpack colTName
         colTyQ = colType colTy
-        colTypeQ = [t|$(litT . strTyLit $ T.unpack colName) :-> $colTyQ|]
+        colTypeQ = [t|$(litT . strTyLit $ C8.unpack colName) :-> $colTyQ|]
 
 -- | Splice for manually declaring a column of a given type. For
 -- example, @declareColumn "x2" ''Double@ will declare a type synonym
 -- @type X2 = "x2" :-> Double@ and a lens @x2@.
-declareColumn :: T.Text -> Name -> DecsQ
+declareColumn :: C8.ByteString -> Name -> DecsQ
 declareColumn colName colTy = (:) <$> mkColTDec colTypeQ colTName'
                                   <*> mkColPDec colTName' colTyQ colPName
   where colTName = sanitizeTypeName colName
         colPName = maybe "colDec impossible"
-                         (\(c,t) -> T.cons (toLower c) t)
-                         (T.uncons colTName)
-        colTName' = mkName $ T.unpack colTName
+                         (\(c,t) -> C8.cons (toLower c) t)
+                         (C8.uncons colTName)
+        colTName' = mkName $ C8.unpack colTName
         colTyQ = return (ConT colTy)
-        colTypeQ = [t|$(litT . strTyLit $ T.unpack colName) :-> $colTyQ|]
+        colTypeQ = [t|$(litT . strTyLit $ C8.unpack colName) :-> $colTyQ|]
 
--- * Default CSV Parsing
+-- -- * Default CSV Parsing
 
 -- | Control how row and named column types are generated.
 data RowGen a = RowGen { columnNames    :: [String]
@@ -384,9 +389,9 @@ tableType' :: forall a. (ColumnTypeable a, Monoid a)
 tableType' (RowGen {..}) csvFile =
     pure . TySynD (mkName rowTypeName) [] <$>
     (runIO (readColHeaders opts csvFile) >>= recDec')
-  where recDec' = recDec . map (second colType) :: [(T.Text, a)] -> Q Type
+  where recDec' = recDec . map (second colType) :: [(C8.ByteString, a)] -> Q Type
         colNames' | null columnNames = Nothing
-                  | otherwise = Just (map T.pack columnNames)
+                  | otherwise = Just (map C8.pack columnNames)
         opts = ParserOptions colNames' separator (RFC4180Quoting '\"')
 
 -- | Generate a type for a row of a table all of whose columns remain
@@ -395,7 +400,7 @@ tableTypesText' :: forall a. (ColumnTypeable a, Monoid a)
                 => RowGen a -> FilePath -> DecsQ
 tableTypesText' (RowGen {..}) csvFile =
   do colNames <- runIO $ withFile csvFile ReadMode $ \h ->
-       maybe (tokenizeRow opts <$> T.hGetLine h)
+       maybe (tokenizeRow opts <$> C8.hGetLine h)
              pure
              (headerOverride opts)
      let headers = zip colNames (repeat (inferType " "))
@@ -405,11 +410,11 @@ tableTypesText' (RowGen {..}) csvFile =
                       h:t -> mkName $ toLower h : t ++ "Parser"
      optsTy <- sigD optsName [t|ParserOptions|]
      optsDec <- valD (varP optsName) (normalB $ lift opts) []
-     colDecs <- concat <$> mapM (uncurry $ colDec (T.pack tablePrefix)) headers
+     colDecs <- concat <$> mapM (uncurry $ colDec (C8.pack tablePrefix)) headers
      return (recTy : optsTy : optsDec : colDecs)
-  where recDec' = recDec . map (second colType) :: [(T.Text, a)] -> Q Type
+  where recDec' = recDec . map (second colType) :: [(C8.ByteString, a)] -> Q Type
         colNames' | null columnNames = Nothing
-                  | otherwise = Just (map T.pack columnNames)
+                  | otherwise = Just (map C8.pack columnNames)
         opts = ParserOptions colNames' separator (RFC4180Quoting '\"')
 
 -- | Like 'tableType'', but additionally generates a type synonym for
@@ -430,14 +435,14 @@ tableTypes' (RowGen {..}) csvFile =
      colDecs <- concat <$> mapM (uncurry mkColDecs) headers
      return (recTy : optsTy : optsDec : colDecs)
      -- (:) <$> (tySynD (mkName n) [] (recDec' headers))
-     --     <*> (concat <$> mapM (uncurry $ colDec (T.pack prefix)) headers)
-  where recDec' = recDec . map (second colType) :: [(T.Text, a)] -> Q Type
+     --     <*> (concat <$> mapM (uncurry $ colDec (C8.pack prefix)) headers)
+  where recDec' = recDec . map (second colType) :: [(C8.ByteString, a)] -> Q Type
         colNames' | null columnNames = Nothing
-                  | otherwise = Just (map T.pack columnNames)
+                  | otherwise = Just (map C8.pack columnNames)
         opts = ParserOptions colNames' separator (RFC4180Quoting '\"')
         mkColDecs colNm colTy = do
-          let safeName = tablePrefix ++ (T.unpack . sanitizeTypeName $ colNm)
+          let safeName = tablePrefix ++ (C8.unpack . sanitizeTypeName $ colNm)
           mColNm <- lookupTypeName safeName
           case mColNm of
             Just _ -> pure []
-            Nothing -> colDec (T.pack tablePrefix) colNm colTy
+            Nothing -> colDec (C8.pack tablePrefix) colNm colTy

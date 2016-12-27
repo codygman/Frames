@@ -26,8 +26,8 @@ import Data.Proxy
 import Data.Vinyl
 import Data.Vinyl.Functor (Compose(..), (:.), Identity(..), Const(..))
 import Data.Vinyl.TypeLevel (RIndex, RecAll)
-import Frames.RecF (reifyDict)
-import Frames.TypeLevel (LAll, HasInstances, AllHave)
+import Frames.ByteString.RecF (reifyDict)
+import Frames.ByteString.TypeLevel (LAll, HasInstances, AllHave)
 #if __GLASGOW_HASKELL__ < 800
 import GHC.Prim (Constraint)
 #else

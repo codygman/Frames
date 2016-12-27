@@ -20,6 +20,7 @@ module Frames.ByteString.Frames
   , Text
   ) where
 import Data.Text (Text)
+import Data.ByteString.Char8 (ByteString)
 import Data.Vinyl ((<+>))
 import Data.Vinyl.Lens hiding (rlens, rget, rput)
 import Frames.ByteString.Col ((:->)(..))

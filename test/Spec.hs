@@ -77,3 +77,6 @@ main = do
 
          it "bsDropWhileEnd should be equivalent to T.dropWhileEnd 1" $ do
            (TE.decodeUtf8 $ bsDropWhileEnd (=='.') "foo...") == T.dropWhileEnd (=='.') "foo..."
+
+         it "bsStrip should be equivalent to T.dropWhileEnd 1" $ do
+           (TE.decodeUtf8 $ bsStrip " foo " == T.strip " foo "

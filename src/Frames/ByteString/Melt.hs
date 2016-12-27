@@ -7,13 +7,13 @@ import Data.Proxy
 import Data.Vinyl
 import Data.Vinyl.Functor (Identity(..))
 import Data.Vinyl.TypeLevel
-import Frames.Col
-import Frames.CoRec (CoRec)
-import qualified Frames.CoRec as C
-import Frames.Frame (Frame(..), FrameRec)
-import Frames.Rec
-import Frames.RecF (ColumnHeaders(..), frameCons)
-import Frames.TypeLevel
+import Frames.ByteString.Col
+import Frames.ByteString.CoRec (CoRec)
+import qualified Frames.ByteString.CoRec as C
+import Frames.ByteString.Frame (Frame(..), FrameRec)
+import Frames.ByteString.Rec
+import Frames.ByteString.RecF (ColumnHeaders(..), frameCons)
+import Frames.ByteString.TypeLevel
 
 type family Elem t ts :: Bool where
   Elem t '[] = 'False

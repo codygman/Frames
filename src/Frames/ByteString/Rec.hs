@@ -19,8 +19,8 @@ import Data.Proxy
 import Data.Vinyl (recordToList, rmap, reifyConstraint, Dict(..), Rec)
 import Data.Vinyl.TypeLevel (RecAll)
 import Data.Vinyl.Functor (Identity(..), Const(..), Compose(..), (:.))
-import Frames.Col
-import Frames.RecF
+import Frames.ByteString.Col
+import Frames.ByteString.RecF
 
 -- | A record with unadorned values. This is @Vinyl@'s 'Rec'
 -- 'Identity'. We give this type a name as it is used pervasively for

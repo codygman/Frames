@@ -14,6 +14,7 @@ import Control.Monad.Primitive
 import Control.Monad.ST (runST)
 import Data.Proxy
 import Data.Text (Text)
+import Data.ByteString.Char8 (ByteString)
 import qualified Data.Vector as VB
 import qualified Data.Vector.Generic as VG
 import qualified Data.Vector.Generic.Mutable as VGM

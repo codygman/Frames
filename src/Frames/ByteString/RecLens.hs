@@ -13,8 +13,8 @@ import Control.Applicative
 import qualified Data.Vinyl as V
 import Data.Vinyl.Functor (Identity(..))
 import Data.Vinyl.TypeLevel
-import Frames.Col ((:->)(..))
-import Frames.Rec (Record)
+import Frames.ByteString.Col ((:->)(..))
+import Frames.ByteString.Rec (Record)
 
 rlens' :: (i ~ RIndex r rs, V.RElem r rs i, Functor f, Functor g)
        => sing r
