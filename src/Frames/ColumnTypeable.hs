@@ -36,7 +36,9 @@ parse' = fmap discardConfidence . parse
 
 instance Parseable Bool where
 instance Parseable Int where
+  parse = fmap Definitely . fromText . T.filter (/= ',')
 instance Parseable Float where
+  parse = fmap Definitely . fromText . T.filter (/= ',')
 instance Parseable Double where
   -- Some CSV's export Doubles in a format like '1,000.00', filtering
   -- out commas lets us parse those sucessfully
