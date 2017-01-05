@@ -9,6 +9,7 @@
              QuasiQuotes,
              RecordWildCards,
              ScopedTypeVariables,
+             PartialTypeSignatures,
              TemplateHaskell,
              TypeOperators #-}
 -- | Infer row types from comma-separated values (CSV) data and read
@@ -24,7 +25,7 @@ import Data.Monoid (Monoid)
 #endif
 
 import Control.Arrow (first, second)
-import Control.Monad (MonadPlus(..), when, void)
+import Control.Monad (MonadPlus(..), when, void, forever)
 import Control.Monad.IO.Class
 import Data.Char (isAlpha, isAlphaNum, toLower, toUpper)
 import qualified Data.Foldable as F
@@ -450,11 +451,36 @@ tableTypes' (RowGen {..}) csvFile =
 
 -- | 'P.yield' a header row with column names followed by a line of
 -- text for each 'Record' with each field separated by a comma.
-produceCSV :: forall f ts m.
+produceCSV :: forall ts m.
+              (ColumnHeaders ts, ReadRec ts, AsVinyl ts, Monad m,
+               RecAll Identity (UnColumn ts) Show)
+           => P.Pipe (Record ts) (String) m ()
+produceCSV  = do
+  P.yield (intercalate "," (columnHeaders (Proxy :: Proxy (Record ts))))
+  forever $ P.map (intercalate "," . showFields)
+
+printCSV :: forall ts.
+              (ColumnHeaders ts, ReadRec ts, AsVinyl ts,
+               RecAll Identity (UnColumn ts) Show)
+           => P.Pipe (Record ts) (P.Effect _ _) IO ()
+printCSV = produceCSV P.>-> P.mapM_ putStrLn
+-- current error:
+-- λ> runEffect $ rowStream >-> printCSV
+
+-- <interactive>:397:13-34: error:
+--     • Couldn't match type ‘P.Proxy X () () X t0 t10’ with ‘X’
+--       Expected type: Effect IO ()
+--         Actual type: P.Proxy X () () (Effect t0 t10) IO ()
+--     • In the second argument of ‘($)’, namely ‘rowStream >-> printCSV’
+--       In the expression: runEffect $ rowStream >-> printCSV
+--       In an equation for ‘it’: it = runEffect $ rowStream >-> printCSV
+
+
+produceCSV' :: forall f ts m.
               (ColumnHeaders ts, AsVinyl ts, Foldable f, Monad m,
                RecAll Identity (UnColumn ts) Show)
            => f (Record ts) -> P.Producer String m ()
-produceCSV recs = do
+produceCSV' recs = do
   P.yield (intercalate "," (columnHeaders (Proxy :: Proxy (Record ts))))
   F.mapM_ (P.yield . intercalate "," . showFields) recs
 
@@ -464,4 +490,4 @@ writeCSV :: (ColumnHeaders ts, AsVinyl ts, Foldable f,
              RecAll Identity (UnColumn ts) Show)
          => FilePath -> f (Record ts) -> IO ()
 writeCSV fp recs = withFile fp WriteMode $ \h ->
-                     P.runEffect $ produceCSV recs P.>-> P.toHandle h
+                     P.runEffect $ produceCSV' recs P.>-> P.toHandle h
